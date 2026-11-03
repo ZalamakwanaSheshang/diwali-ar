@@ -1,18 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#100817">
+  <title>Happy Diwali AR Experience</title>
+  <link rel="stylesheet" href="./style.css">
 
-    <meta name="theme-color" content="#100817">
+  <script>
+    // Visible diagnostics for failures that occur before app.js starts.
+    window.addEventListener("error", function (event) {
+      const panel = document.getElementById("diagnostic");
+      if (panel) {
+        panel.style.display = "block";
+        panel.textContent = "JavaScript error: " + (event.message || "Unknown error");
+      }
+    });
+    window.addEventListener("unhandledrejection", function (event) {
+      const panel = document.getElementById("diagnostic");
+      if (panel) {
+        panel.style.display = "block";
+        panel.textContent = "Loading error: " + String(event.reason || "Unknown error");
+      }
+    });
+  </script>
 
-    <title>Happy Diwali AR Experience</title>
-
-    <link rel="stylesheet" href="./style.css">
-
-    <!-- Three.js and MindAR imports -->
-    <script type="importmap">
+  <script type="importmap">
   {
     "imports": {
       "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -21,47 +34,25 @@
   }
   </script>
 </head>
-
 <body>
-
-    <div id="welcome">
-        <div class="welcome-content">
-            <div class="diya">🪔</div>
-
-            <h1>Happy Diwali</h1>
-
-            <p>
-                A little light, a lot of happiness
-            </p>
-
-            <button id="startButton">
-                Start Diwali Experience
-            </button>
-
-            <small>
-                Allow camera access to experience AR
-            </small>
-        </div>
+  <div id="welcome">
+    <div class="welcome-content">
+      <div class="diya">🪔</div>
+      <h1>Happy Diwali</h1>
+      <p>A little light, a lot of happiness</p>
+      <button id="startButton" type="button">Start Diwali Experience</button>
+      <small>Allow camera access to experience AR</small>
     </div>
+  </div>
 
-    <div id="ar-container"></div>
+  <div id="ar-container"></div>
+  <div id="status">Point your camera at the Diwali invitation</div>
+  <div id="controls">
+    <button id="soundButton" type="button">🔊 Enable Sound</button>
+  </div>
+  <div id="diagnostic" role="alert" style="display:none;position:fixed;z-index:30;left:12px;right:12px;bottom:90px;padding:12px;background:#5b1010;color:white;border-radius:10px;font:14px Arial,sans-serif;overflow-wrap:anywhere"></div>
 
-    <div id="status">
-        Point your camera at the Diwali invitation
-    </div>
-
-    <div id="controls">
-        <button id="soundButton">
-            🔊 Enable Sound
-        </button>
-    </div>
-
-    <!-- Hidden video source -->
-    <video id="arVideo" src="./diwali.mp4" preload="auto" playsinline webkit-playsinline crossorigin="anonymous"
-        muted></video>
-
-    <script type="module" src="./app.js"></script>
-
+  <video id="arVideo" src="./diwali.mp4" preload="auto" playsinline webkit-playsinline muted></video>
+  <script type="module" src="./app.js"></script>
 </body>
-
 </html>
