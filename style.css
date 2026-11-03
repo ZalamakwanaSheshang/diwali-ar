@@ -106,32 +106,8 @@ small {
   display: none;
 }
 
-#videoStage {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 56px 16px 86px;
-  background: rgba(0, 0, 0, 0.18);
-  pointer-events: none;
-}
-
-#videoStage.visible {
-  display: flex;
-}
-
 #arVideo {
-  display: block;
-  width: min(82vw, 420px);
-  max-height: min(72vh, 760px);
-  aspect-ratio: 9 / 16;
-  object-fit: contain;
-  background: #000;
-  border-radius: 14px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
-  pointer-events: none;
+  display: none;
 }
 
 #diagnostic {
