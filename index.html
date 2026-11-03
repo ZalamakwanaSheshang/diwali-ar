@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta name="theme-color" content="#100817">
+
+    <title>Happy Diwali AR Experience</title>
+
+    <link rel="stylesheet" href="./style.css">
+
+    <!-- Three.js and MindAR imports -->
+    <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+
+    <div id="welcome">
+        <div class="welcome-content">
+            <div class="diya">🪔</div>
+
+            <h1>Happy Diwali</h1>
+
+            <p>
+                A little light, a lot of happiness
+            </p>
+
+            <button id="startButton">
+                Start Diwali Experience
+            </button>
+
+            <small>
+                Allow camera access to experience AR
+            </small>
+        </div>
+    </div>
+
+    <div id="ar-container"></div>
+
+    <div id="status">
+        Point your camera at the Diwali invitation
+    </div>
+
+    <div id="controls">
+        <button id="soundButton">
+            🔊 Enable Sound
+        </button>
+    </div>
+
+    <!-- Hidden video source -->
+    <video id="arVideo" src="./diwali.mp4" preload="auto" playsinline webkit-playsinline crossorigin="anonymous"
+        muted></video>
+
+    <script type="module" src="./app.js"></script>
+
+</body>
+
+</html>
