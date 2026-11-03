@@ -15,10 +15,12 @@ const TRACKING_LOSS_GRACE_MS = 1600;
 
 // Position and size are in MindAR target coordinates.
 // The target image width is normalized to approximately 1 unit.
-const VIDEO_WIDTH = 0.34;
+// Enlarge the portrait panel so it is clearly visible relative to the QR target.
+// MindAR target width is approximately 1 world unit.
+// The panel is upright: its bottom edge starts just above the target plane.
+const VIDEO_WIDTH = 0.78;
 const VIDEO_HEIGHT = VIDEO_WIDTH * (16 / 9);
-const VIDEO_LIFT = 0.42;
-const VIDEO_DEPTH = 0.035;
+const VIDEO_CLEARANCE = 0.035;
 
 let mindarThree;
 let anchor;
@@ -137,7 +139,10 @@ startButton.addEventListener("click", async () => {
 
     videoPlane = new THREE.Mesh(geometry, material);
     videoPlane.rotation.x = -Math.PI / 2;
-    videoPlane.position.set(0, VIDEO_LIFT, VIDEO_DEPTH);
+    // Keep the panel centred over the target instead of shifting it toward
+    // the target's top edge. Lift it along the target-plane normal so it
+    // stands upright above a flat invitation.
+    videoPlane.position.set(0, 0, (VIDEO_HEIGHT / 2) + VIDEO_CLEARANCE);
     videoPlane.visible = false;
     anchor.group.add(videoPlane);
 
