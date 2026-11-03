@@ -4,7 +4,6 @@ import { MindARThree } from "mindar-image-three";
 const $ = (id) => document.getElementById(id);
 const startButton = $("startButton");
 const soundButton = $("soundButton");
-const sizeProfile = $("sizeProfile");
 const container = $("ar-container");
 const welcome = $("welcome");
 const status = $("status");
@@ -13,17 +12,16 @@ const video = $("arVideo");
 const diagnostic = $("diagnostic");
 
 const TRACKING_LOSS_GRACE_MS = 1600;
-const VIDEO_CLEARANCE = 0.025;
-const ORIENTATION_SMOOTHING = 0.12;
 
-// User estimates: poster QR 5–6 cm (midpoint 5.5 cm),
-// standalone QR 7–8 cm (midpoint 7.5 cm).
-// Keep the AR panel about 7 cm wide in the real world for either print size.
-const DESIRED_VIDEO_WIDTH_CM = 7;
-const SIZE_PROFILES = {
-  poster: { qrWidthCm: 5.5, label: "poster QR (about 5–6 cm)" },
-  standalone: { qrWidthCm: 7.5, label: "standalone QR (about 7–8 cm)" }
-};
+// MindAR normalizes the target image width to 1 world unit.
+// Assume the standalone QR target is approximately 10 cm wide.
+// Make the video slightly wider than before for better visibility.
+const QR_TARGET_WIDTH_CM = 10;
+const VIDEO_WIDTH_CM = 8.5;
+const VIDEO_WIDTH = VIDEO_WIDTH_CM / QR_TARGET_WIDTH_CM; // 0.85 target units
+const VIDEO_HEIGHT = VIDEO_WIDTH * (16 / 9);
+const VIDEO_CLEARANCE = 0.025;
+const ORIENTATION_SMOOTHING = 0.14;
 
 let mindarThree;
 let anchor;
@@ -35,10 +33,6 @@ let waitingForFreshScan = false;
 let lossTimer = null;
 let soundEnabled = true;
 let started = false;
-let selectedProfile = SIZE_PROFILES.poster;
-let videoWidthUnits = DESIRED_VIDEO_WIDTH_CM / selectedProfile.qrWidthCm;
-let videoHeightUnits = videoWidthUnits * (16 / 9);
-
 let latestOrientation = null;
 let panelQuaternionInitialized = false;
 const panelQuaternion = new THREE.Quaternion();
@@ -46,14 +40,13 @@ const panelQuaternion = new THREE.Quaternion();
 const euler = new THREE.Euler();
 const qEuler = new THREE.Quaternion();
 const qScreen = new THREE.Quaternion();
+const qCameraMount = new THREE.Quaternion();
 const qDeviceToWorld = new THREE.Quaternion();
 const qWorldToDevice = new THREE.Quaternion();
 const qCameraToWorld = new THREE.Quaternion();
 const qWorldToAnchor = new THREE.Quaternion();
-const qAnchorToWorld = new THREE.Quaternion();
 
 const gravityWorld = new THREE.Vector3(0, -1, 0);
-const gravityDevice = new THREE.Vector3();
 const gravityCamera = new THREE.Vector3();
 const gravityAnchor = new THREE.Vector3();
 const upAnchor = new THREE.Vector3();
@@ -61,7 +54,6 @@ const panelNormalAnchor = new THREE.Vector3();
 const panelRightAnchor = new THREE.Vector3();
 const cameraPositionWorld = new THREE.Vector3();
 const cameraPositionAnchor = new THREE.Vector3();
-const anchorOriginWorld = new THREE.Vector3();
 const basis = new THREE.Matrix4();
 const axisX = new THREE.Vector3(1, 0, 0);
 const axisY = new THREE.Vector3(0, 1, 0);
@@ -112,9 +104,10 @@ async function requestOrientationPermissionIfNeeded() {
 }
 
 /*
- * DeviceOrientation API -> device/camera gravity.
- * Uses the DeviceOrientationControls axis convention. Only gravity is used;
- * compass heading (alpha) does not determine the panel's upright direction.
+ * Correct DeviceOrientationControls transform order:
+ * qDeviceToWorld = qEuler * qScreen * qCameraMount.
+ * The earlier build applied the camera mounting rotation before qEuler;
+ * that reversed the gravity vector in some phone/card poses.
  */
 function readGravityInCamera() {
   if (!latestOrientation) return false;
@@ -125,19 +118,16 @@ function readGravityInCamera() {
   euler.set(beta * deg, alpha * deg, -gamma * deg, "YXZ");
   qEuler.setFromEuler(euler);
 
-  const angle = (screen.orientation && Number.isFinite(screen.orientation.angle))
+  const screenAngle = (screen.orientation && Number.isFinite(screen.orientation.angle))
     ? screen.orientation.angle
     : (Number(window.orientation) || 0);
-  qScreen.setFromAxisAngle(axisZ, -angle * deg);
+  qScreen.setFromAxisAngle(axisZ, -screenAngle * deg);
+  qCameraMount.setFromAxisAngle(axisX, -Math.PI / 2);
 
-  // Rear camera optical frame relative to the device frame.
-  const qCameraMount = new THREE.Quaternion().setFromAxisAngle(axisX, -Math.PI / 2);
-  qDeviceToWorld.copy(qCameraMount).multiply(qEuler).multiply(qScreen).normalize();
+  qDeviceToWorld.copy(qEuler).multiply(qScreen).multiply(qCameraMount).normalize();
   qWorldToDevice.copy(qDeviceToWorld).invert();
 
-  gravityDevice.copy(gravityWorld).applyQuaternion(qWorldToDevice).normalize();
-  // MindAR's Three camera uses the camera coordinate frame for its pose.
-  gravityCamera.copy(gravityDevice);
+  gravityCamera.copy(gravityWorld).applyQuaternion(qWorldToDevice).normalize();
   return true;
 }
 
@@ -147,36 +137,29 @@ function updateFloatingPanelPose() {
   const hasSensor = readGravityInCamera();
 
   if (hasSensor) {
-    // Convert camera-frame gravity into world space, then into target space.
+    // Camera-local gravity -> world -> target-local gravity.
     mindarThree.camera.getWorldQuaternion(qCameraToWorld);
     gravityAnchor.copy(gravityCamera).applyQuaternion(qCameraToWorld).normalize();
 
-    anchor.group.getWorldQuaternion(qAnchorToWorld);
-    qWorldToAnchor.copy(qAnchorToWorld).invert();
+    anchor.group.getWorldQuaternion(qWorldToAnchor);
+    qWorldToAnchor.invert();
     gravityAnchor.applyQuaternion(qWorldToAnchor).normalize();
 
-    // Up points opposite gravity.
     upAnchor.copy(gravityAnchor).negate().normalize();
   } else {
-    // Fallback: assume the target image's top edge is physically upright.
-    // This is stable, but cannot infer whether the target is lying flat.
+    // No motion sensor: retain target image's canonical top direction.
     upAnchor.copy(axisY);
   }
 
-  // Face the camera while keeping the panel's Y axis aligned with gravity.
   mindarThree.camera.getWorldPosition(cameraPositionWorld);
-  anchor.group.getWorldPosition(anchorOriginWorld);
   cameraPositionAnchor.copy(cameraPositionWorld);
   anchor.group.worldToLocal(cameraPositionAnchor);
-
-  // Camera direction from target origin in target-local coordinates.
   panelNormalAnchor.copy(cameraPositionAnchor).normalize();
 
-  // Project viewing direction perpendicular to the physical up vector.
+  // Keep the panel facing the camera while its vertical axis follows gravity.
   panelNormalAnchor.addScaledVector(upAnchor, -panelNormalAnchor.dot(upAnchor));
 
   if (panelNormalAnchor.lengthSq() < 0.0001) {
-    // Near-overhead view: use target normal as deterministic fallback.
     panelNormalAnchor.copy(axisZ);
     panelNormalAnchor.addScaledVector(upAnchor, -panelNormalAnchor.dot(upAnchor));
   }
@@ -186,25 +169,27 @@ function updateFloatingPanelPose() {
   }
   panelNormalAnchor.normalize();
 
-  // Right-handed panel basis: X = right, Y = physical up, Z = toward camera.
   panelRightAnchor.crossVectors(upAnchor, panelNormalAnchor).normalize();
   panelNormalAnchor.crossVectors(panelRightAnchor, upAnchor).normalize();
-  basis.makeBasis(panelRightAnchor, upAnchor, panelNormalAnchor);
 
+  // Prevent 180-degree flips: choose the equivalent basis closest to the
+  // previous frame's orientation. This also avoids sudden upside-down jumps.
+  basis.makeBasis(panelRightAnchor, upAnchor, panelNormalAnchor);
   const desired = new THREE.Quaternion().setFromRotationMatrix(basis);
+
   if (!panelQuaternionInitialized) {
     panelQuaternion.copy(desired);
     panelQuaternionInitialized = true;
   } else {
+    if (panelQuaternion.dot(desired) < 0) {
+      desired.set(-desired.x, -desired.y, -desired.z, -desired.w);
+    }
     panelQuaternion.slerp(desired, ORIENTATION_SMOOTHING);
   }
   videoPlane.quaternion.copy(panelQuaternion);
 
-  // CRITICAL POSITION FIX:
-  // Move the panel centre along physical UP by half its height, then slightly
-  // toward the camera. This makes it stand above a flat QR and outward from
-  // a vertically held QR. Do not offset along the target's fixed Z axis.
-  videoPlane.position.copy(upAnchor).multiplyScalar(videoHeightUnits / 2);
+  // Raise the panel along physical up, not the target's fixed Z axis.
+  videoPlane.position.copy(upAnchor).multiplyScalar(VIDEO_HEIGHT / 2);
   videoPlane.position.addScaledVector(panelNormalAnchor, VIDEO_CLEARANCE);
 }
 
@@ -217,7 +202,7 @@ async function playGreeting() {
   waitingForFreshScan = false;
   videoPlaying = true;
   setVideoPlaneVisible(true);
-  status.textContent = "✨ Your Diwali greeting is floating above the invitation!";
+  status.textContent = "✨ Your Diwali greeting is floating above the scanner!";
 
   video.muted = !soundEnabled;
   try {
@@ -239,8 +224,8 @@ async function playGreeting() {
   }
 }
 
-if (!startButton || !soundButton || !sizeProfile || !container || !welcome ||
-    !status || !controls || !video || !diagnostic) {
+if (!startButton || !soundButton || !container || !welcome || !status ||
+    !controls || !video || !diagnostic) {
   throw new Error("A required page element is missing. Check index.html.");
 }
 
@@ -251,17 +236,12 @@ video.addEventListener("ended", () => {
   setVideoPlaneVisible(false);
   clearLossTimer();
   waitingForFreshScan = true;
-  status.textContent = "🪔 Greeting completed. Point at the invitation again to replay.";
+  status.textContent = "🪔 Greeting completed. Point at the scanner again to replay.";
 });
 
 startButton.addEventListener("click", async () => {
   if (started) return;
   started = true;
-
-  selectedProfile = SIZE_PROFILES[sizeProfile.value] || SIZE_PROFILES.poster;
-  videoWidthUnits = DESIRED_VIDEO_WIDTH_CM / selectedProfile.qrWidthCm;
-  videoHeightUnits = videoWidthUnits * (16 / 9);
-
   startButton.disabled = true;
   startButton.textContent = "Starting camera...";
   diagnostic.style.display = "none";
@@ -290,7 +270,7 @@ startButton.addEventListener("click", async () => {
     const texture = new THREE.VideoTexture(video);
     texture.colorSpace = THREE.SRGBColorSpace;
 
-    const geometry = new THREE.PlaneGeometry(videoWidthUnits, videoHeightUnits);
+    const geometry = new THREE.PlaneGeometry(VIDEO_WIDTH, VIDEO_HEIGHT);
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       side: THREE.DoubleSide
@@ -308,7 +288,7 @@ startButton.addEventListener("click", async () => {
 
       if (videoPlaying) {
         setVideoPlaneVisible(true);
-        status.textContent = "✨ Your greeting is following the invitation.";
+        status.textContent = "✨ Your greeting is following the scanner.";
         return;
       }
 
@@ -324,8 +304,8 @@ startButton.addEventListener("click", async () => {
 
       if (!videoPlaying) {
         status.textContent = waitingForFreshScan
-          ? "Point at the invitation again to replay."
-          : "Point camera at the invitation.";
+          ? "Point at the scanner again to replay."
+          : "Point camera at the scanner.";
         return;
       }
 
@@ -335,7 +315,7 @@ startButton.addEventListener("click", async () => {
         lossTimer = null;
         if (videoPlaying && !targetVisible) {
           setVideoPlaneVisible(false);
-          status.textContent = "✨ Greeting continues. Point at the invitation to bring back the floating video.";
+          status.textContent = "✨ Greeting continues. Scan again to bring back the floating video.";
         }
       }, TRACKING_LOSS_GRACE_MS);
     };
@@ -351,7 +331,7 @@ startButton.addEventListener("click", async () => {
 
     welcome.style.display = "none";
     controls.style.display = "block";
-    status.textContent = `Point at the ${selectedProfile.label} to start.`;
+    status.textContent = "Point your camera at the 10 × 10 cm scanner.";
   } catch (error) {
     console.error("AR startup failed:", error);
     clearLossTimer();
@@ -382,4 +362,4 @@ soundButton.addEventListener("click", async () => {
   }
 });
 
-console.info("Diwali AR adaptive-size, gravity-oriented hybrid app loaded.");
+console.info("Diwali AR direct-scanner build loaded.");
