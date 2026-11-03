@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import { MindARThree } from "mindar-image-three";
 
 const $ = (id) => document.getElementById(id);
@@ -8,35 +7,85 @@ const container = $("ar-container");
 const welcome = $("welcome");
 const status = $("status");
 const controls = $("controls");
+const videoStage = $("videoStage");
 const video = $("arVideo");
 const diagnostic = $("diagnostic");
 
 let mindarThree;
-let videoPlane;
-let videoPlaying = false;
-let videoFinished = false;
-let targetVisible = false;
-let needsFreshDetection = false;
-let soundEnabled = true;
 let started = false;
+let targetVisible = false;
+let hasPlayedOnce = false;
+let waitingForRescan = false;
+let videoPlaying = false;
+let soundEnabled = true;
 
 function showError(message) {
   diagnostic.style.display = "block";
   diagnostic.textContent = message;
   status.style.display = "block";
-  status.textContent = "AR could not start. See the error message below.";
+  status.textContent = "AR could not start. See the error below.";
   startButton.disabled = false;
   startButton.textContent = "Try Again";
 }
 
-if (!startButton || !soundButton || !container || !welcome || !status || !controls || !video) {
-  throw new Error("A required page element is missing. Check that the latest index.html was uploaded.");
+function showVideo() {
+  videoStage.classList.add("visible");
 }
 
-// Sound is enabled by default. Some browsers may still block audible autoplay;
-// in that case the video starts muted and the visitor can tap the sound control.
-video.muted = false;
-soundButton.textContent = "🔇 Mute Sound";
+function hideVideo() {
+  videoStage.classList.remove("visible");
+}
+
+async function playGreeting() {
+  if (videoPlaying) return;
+
+  videoPlaying = true;
+  waitingForRescan = false;
+  hasPlayedOnce = true;
+  video.currentTime = 0;
+  showVideo();
+  status.textContent = "✨ Your Diwali greeting is playing!";
+
+  // Try sound-on first. Mobile browsers may reject audible autoplay even
+  // after camera permission; in that case start muted and expose the sound button.
+  video.muted = !soundEnabled;
+
+  try {
+    await video.play();
+    if (video.muted) {
+      soundButton.textContent = "🔊 Enable Sound";
+      status.textContent = "✨ Greeting playing. Tap Enable Sound if you want audio.";
+    } else {
+      soundButton.textContent = "🔇 Mute Sound";
+    }
+  } catch (error) {
+    console.warn("Audible playback was blocked; retrying muted.", error);
+    soundEnabled = false;
+    video.muted = true;
+    soundButton.textContent = "🔊 Enable Sound";
+    try {
+      await video.play();
+      status.textContent = "✨ Greeting playing. Tap Enable Sound for audio.";
+    } catch (mutedError) {
+      videoPlaying = false;
+      hideVideo();
+      showError("Video playback failed: " + mutedError.message);
+    }
+  }
+}
+
+if (!startButton || !soundButton || !container || !welcome || !status ||
+    !controls || !videoStage || !video || !diagnostic) {
+  throw new Error("A required page element is missing. Check index.html.");
+}
+
+video.muted = true;
+video.addEventListener("ended", () => {
+  videoPlaying = false;
+  hideVideo();
+  waitingForRescan = true;
+  status.textContent = "🪔 Greeting finished. Point at the invitation again to replay.";
+});
 
 startButton.addEventListener("click", async () => {
   if (started) return;
@@ -46,13 +95,9 @@ startButton.addEventListener("click", async () => {
   diagnostic.style.display = "none";
   container.style.display = "block";
 
-  // This click is the user's interaction that authorizes starting the experience.
-  soundEnabled = true;
-  video.muted = false;
-
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("Camera access is unavailable. Open this website using its HTTPS GitHub Pages address in Chrome.");
+      throw new Error("Camera access is unavailable. Open this site using its HTTPS GitHub Pages address in Chrome.");
     }
 
     mindarThree = new MindARThree({
@@ -64,92 +109,42 @@ startButton.addEventListener("click", async () => {
       uiError: "no"
     });
 
-    const { renderer, scene, camera } = mindarThree;
     const anchor = mindarThree.addAnchor(0);
 
-    const texture = new THREE.VideoTexture(video);
-    texture.colorSpace = THREE.SRGBColorSpace;
-
-    // Portrait video is centered over the invitation, rather than above its top edge.
-    const geometry = new THREE.PlaneGeometry(0.5625, 1);
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      side: THREE.DoubleSide
-    });
-
-    videoPlane = new THREE.Mesh(geometry, material);
-    videoPlane.position.set(0, 0, 0.05);
-    videoPlane.visible = false;
-    anchor.group.add(videoPlane);
-
-    async function playGreeting() {
-      try {
-        video.currentTime = 0;
-        videoPlane.visible = true;
-        videoPlaying = true;
-        videoFinished = false;
-        needsFreshDetection = false;
-        status.textContent = "✨ Your Diwali greeting is playing!";
-
-        // Try audible playback first.
-        video.muted = !soundEnabled;
-        await video.play();
-      } catch (error) {
-        // Audible autoplay can be blocked by browser policy. Retry muted so the
-        // greeting still plays, and let the visitor enable sound with one tap.
-        console.warn("Audible autoplay was blocked; retrying muted.", error);
-        try {
-          soundEnabled = false;
-          video.muted = true;
-          soundButton.textContent = "🔊 Enable Sound";
-          await video.play();
-          status.textContent = "✨ Greeting playing. Tap Enable Sound for audio.";
-        } catch (mutedError) {
-          console.error("Video playback failed:", mutedError);
-          videoPlaying = false;
-          videoPlane.visible = false;
-          status.textContent = "Video could not play. Check that diwali.mp4 is uploaded.";
-          showError("Video playback error: " + mutedError.message);
-        }
-      }
-    }
-
     anchor.onTargetFound = () => {
+      const isNewDetection = !targetVisible;
       targetVisible = true;
-      anchor.group.visible = true;
-      if (!videoPlaying && !videoFinished) {
-        void playGreeting();
-      } else if (videoFinished && needsFreshDetection) {
+
+      // First detection starts the greeting. After it finishes, only a fresh
+      // loss-and-reacquisition cycle can replay it.
+      if (!videoPlaying && (!hasPlayedOnce || (waitingForRescan && isNewDetection))) {
         void playGreeting();
       }
+      status.textContent = videoPlaying
+        ? "✨ Your Diwali greeting is playing!"
+        : "Invitation detected.";
     };
 
     anchor.onTargetLost = () => {
       targetVisible = false;
-      // Keep the last tracked pose visible while the greeting is playing.
-      anchor.group.visible = true;
-      if (videoFinished) needsFreshDetection = true;
-      status.textContent = videoPlaying
-        ? "✨ Enjoy your Diwali greeting!"
-        : "Point camera at the invitation again";
+      if (!videoPlaying && waitingForRescan) {
+        status.textContent = "Point at the invitation again to replay.";
+      }
+      // The video is a screen-fixed overlay, not attached to the target.
+      // It therefore remains visible while the phone moves anywhere.
     };
-
-    video.addEventListener("ended", () => {
-      videoPlaying = false;
-      videoFinished = true;
-      videoPlane.visible = false;
-      needsFreshDetection = !targetVisible;
-      status.textContent = "🪔 Greeting completed! Scan the invitation again to replay.";
-    });
 
     status.style.display = "block";
     status.textContent = "Requesting camera access...";
     await mindarThree.start();
 
-    renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    mindarThree.renderer.setAnimationLoop(() => {
+      mindarThree.renderer.render(mindarThree.scene, mindarThree.camera);
+    });
+
     welcome.style.display = "none";
     controls.style.display = "block";
-    status.textContent = "Point camera at the invitation";
+    status.textContent = "Point your camera at the invitation to start.";
   } catch (error) {
     console.error("AR startup failed:", error);
     try {
@@ -174,9 +169,9 @@ soundButton.addEventListener("click", async () => {
       soundEnabled = false;
       video.muted = true;
       soundButton.textContent = "🔊 Enable Sound";
-      status.textContent = "Sound could not be enabled. Tap Enable Sound again.";
+      status.textContent = "Sound was blocked. Tap Enable Sound again.";
     }
   }
 });
 
-console.info("Diwali AR app.js loaded successfully.");
+console.info("Diwali AR stable-overlay app.js loaded.");

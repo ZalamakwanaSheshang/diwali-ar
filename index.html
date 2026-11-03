@@ -6,7 +6,6 @@
   <meta name="theme-color" content="#100817">
   <title>Happy Diwali AR Experience</title>
   <link rel="stylesheet" href="./style.css">
-
   <script>
     window.addEventListener("error", function (event) {
       const panel = document.getElementById("diagnostic");
@@ -23,7 +22,6 @@
       }
     });
   </script>
-
   <script type="importmap">
   {
     "imports": {
@@ -41,18 +39,23 @@
       <h1>Happy Diwali</h1>
       <p>A little light, a lot of happiness</p>
       <button id="startButton" type="button">Start Diwali Experience</button>
-      <small>Allow camera access to experience AR</small>
+      <small>Allow camera access, then point at the Diwali QR/target card</small>
     </div>
   </div>
 
   <div id="ar-container"></div>
-  <div id="status">Point your camera at the Diwali invitation</div>
+  <div id="status" aria-live="polite">Point camera at the invitation</div>
+
   <div id="controls">
     <button id="soundButton" type="button">🔊 Enable Sound</button>
   </div>
-  <div id="diagnostic" role="alert" style="display:none;position:fixed;z-index:30;left:12px;right:12px;bottom:90px;padding:12px;background:#5b1010;color:white;border-radius:10px;font:14px Arial,sans-serif;overflow-wrap:anywhere"></div>
 
-  <video id="arVideo" src="./diwali.mp4" preload="auto" playsinline webkit-playsinline muted></video>
+  <div id="videoStage" aria-live="polite">
+    <video id="arVideo" src="./diwali.mp4" preload="auto"
+      playsinline webkit-playsinline muted></video>
+  </div>
+
+  <div id="diagnostic" role="alert"></div>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
