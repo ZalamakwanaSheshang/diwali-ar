@@ -102,7 +102,6 @@ startButton.addEventListener("click", async () => {
 
     anchor.onTargetLost = () => {
       targetVisible = false;
-      // Keep the last tracked pose visible while the greeting is playing.
       anchor.group.visible = true;
       if (videoFinished) needsFreshDetection = true;
       status.textContent = videoPlaying
@@ -143,5 +142,4 @@ soundButton.addEventListener("click", () => {
   soundButton.textContent = soundEnabled ? "🔇 Mute Sound" : "🔊 Enable Sound";
 });
 
-// Let the user know the module loaded successfully.
 console.info("Diwali AR app.js loaded successfully.");

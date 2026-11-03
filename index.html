@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="./style.css">
 
   <script>
-    // Visible diagnostics for failures that occur before app.js starts.
     window.addEventListener("error", function (event) {
       const panel = document.getElementById("diagnostic");
       if (panel) {
@@ -29,6 +28,7 @@
   {
     "imports": {
       "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
       "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
     }
   }
