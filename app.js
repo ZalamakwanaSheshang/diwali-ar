@@ -273,7 +273,11 @@ startButton.addEventListener("click", async () => {
     const geometry = new THREE.PlaneGeometry(VIDEO_WIDTH, VIDEO_HEIGHT);
     const material = new THREE.MeshBasicMaterial({
       map: texture,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      transparent: true,
+      depthWrite: false,
+      transparent: true,
+      depthWrite: false
     });
 
     videoPlane = new THREE.Mesh(geometry, material);
